@@ -39,4 +39,17 @@ namespace Garbage {
 		}
 
 	}
+	class Node {
+		public List<Loop> loops;
+		Tuple<float, float> score = null;
+		public Node(List<Loop> loops) {
+			this.loops = loops;
+		}
+		public Tuple<float, float> GetScore() {
+			if (score == null) {
+				score = Program.CalculateScore(this);
+			}
+			return score;
+		}
+	}
 }
