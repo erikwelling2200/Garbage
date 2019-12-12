@@ -159,16 +159,22 @@ namespace Garbage {
 				}
 			}
 			Tuple<float, float> bestScore = CalculateScore(node);
-
-			float T = 30;
 			int a = 1;
-			int totalNeighbourCount = 0;
 			DateTime start = DateTime.Now;
-			while (T > 0.15f) {
-				for (int i = 0; i < (100*16); i++) {
-					if (a%100 == 0) {
-						Console.WriteLine(a + " / " + ((100*16) * 104) + ": " + (bestScore.Item1 + bestScore.Item2));
-						Console.WriteLine("extrapolated time remaining: " + TimeSpan.FromSeconds((int)Math.Round(DateTime.Now.Subtract(start).TotalSeconds / (float)a * (float)(100 * 16 * 104 - a))));
+
+			//settings
+			float T = 5;
+			int totalNeighbourCount = 0;
+			int stepsPerT = 64;
+			float Tfactor = 0.9f;
+			float TTreshold = 0.15f;
+			int stepsTillThreshold = (int)Math.Ceiling(Math.Log(TTreshold / T, Tfactor));
+
+			while (T > TTreshold) {
+				for (int i = 0; i < stepsPerT; i++) {
+					if (a%10 == 0) {
+						Console.WriteLine(a + " / " + stepsPerT * stepsTillThreshold + ": " + (bestScore.Item1 + bestScore.Item2));
+						Console.WriteLine("extrapolated time remaining: " + TimeSpan.FromSeconds((int)Math.Round((DateTime.Now.Subtract(start).TotalSeconds / (float)a) * (float)(stepsPerT * stepsTillThreshold - a))));
 					}
 					a++;
 					DateTime startTime = DateTime.Now;
@@ -201,7 +207,7 @@ namespace Garbage {
 					node = neighbour;
 					bestScore = score;
 				}
-				T *= 0.9f;
+				T *= Tfactor;
 			}
 			PrintResult(node);
 			Console.WriteLine("search duration: " + DateTime.Now.Subtract(start));
@@ -367,44 +373,52 @@ namespace Garbage {
 					//AddOrdersToLoop(loop, k, origin, frequencies, threadResult);
 				}
 			}
+			//untangle a loop
+			for (int x = 0; x < origin.loops.Count; x++) {
+				List<Node> threadResult = new List<Node>();
+				threadResults.Add(threadResult);
+				int k = x;
+				Thread thread = new Thread(() => Untangle(origin, k, threadResult));
+				threads.Add(thread);
+				thread.Start();
+			}
 			for (int i = 0; i < threadResults.Count; i++) {
 				threads[i].Join();
 				neighbours.AddRange(threadResults[i]);
 			}
-			//untangle a loop
-			for (int x = 0; x < origin.loops.Count; x++) {
-				List<Order> orders = new List<Order>();
-				Node neighbour = CopyNode(origin);
-				for (int i = 0; i < origin.loops [x].orders.Count; i++) {
-					if (origin.loops [x].orders [i].orderID == 0) {
-						//sort orders
-						neighbour.loops [x].orders.Remove(origin.loops [x].orders [i]);
-						Order dump = new Order();
-						orders.Add(dump);
-						Tuple<List<Order>, float> SM = SolveTravellingSM(orders);
-						orders = SM.Item1;
-						int dumpIndex = orders.IndexOf(dump);
-						orders = OffsetLoop(orders, -(dumpIndex + 1));
+			return neighbours;
+		}
+		public static void Untangle(Node origin, int x, List<Node> result) {
+			List<Order> orders = new List<Order>();
+			Node neighbour = CopyNode(origin);
+			for (int i = 0; i < origin.loops[x].orders.Count; i++) {
+				if (origin.loops[x].orders[i].orderID == 0) {
+					//sort orders
+					neighbour.loops[x].orders.Remove(origin.loops[x].orders[i]);
+					Order dump = new Order();
+					orders.Add(dump);
+					Tuple<List<Order>, float> SM = SolveTravellingSM(orders);
+					orders = SM.Item1;
+					int dumpIndex = orders.IndexOf(dump);
+					orders = OffsetLoop(orders, -(dumpIndex + 1));
 
-						neighbour.loops [x].orders.InsertRange(i - (orders.Count - 1), orders);
-						bool isSame = true;
-						for (int a = 0; a < neighbour.loops [x].orders.Count; a++) {
-							if (neighbour.loops [x].orders [a].orderID != origin.loops [x].orders [a].orderID) {
-								isSame = false;
-							}
+					neighbour.loops[x].orders.InsertRange(i - (orders.Count - 1), orders);
+					bool isSame = true;
+					for (int a = 0; a < neighbour.loops[x].orders.Count; a++) {
+						if (neighbour.loops[x].orders[a].orderID != origin.loops[x].orders[a].orderID) {
+							isSame = false;
 						}
-						if (!isSame) {
-							neighbours.Add(neighbour);
-						}
-						neighbour = CopyNode(origin);
-						orders.Clear();
-					} else {
-						orders.Add(origin.loops [x].orders [i]);
-						neighbour.loops [x].orders.Remove(origin.loops [x].orders [i]);
 					}
+					if (!isSame) {
+						result.Add(neighbour);
+					}
+					neighbour = CopyNode(origin);
+					orders.Clear();
+				} else {
+					orders.Add(origin.loops[x].orders[i]);
+					neighbour.loops[x].orders.Remove(origin.loops[x].orders[i]);
 				}
 			}
-			return neighbours;
 		}
 		public static void AddOrdersToLoop(Loop loop, int i, Node origin, Dictionary<int, int> frequencies, List<Node> result) {
 			Tuple<float, List<int>> timeAndVolume = CalculateLoopDurationAndCapacity(loop);
@@ -417,7 +431,10 @@ namespace Garbage {
 					capacityLeft = 20000 - timeAndVolume.Item2[innerLoop];
 				} else {
 					//find possible orders
-					foreach (Order order in completeOrderList) {
+					List<Order> newOrderList = new List<Order>();
+					newOrderList.AddRange(completeOrderList);
+					newOrderList.Add(new Order());
+					foreach (Order order in newOrderList) {
 						int posA = x == 0 ? dumpID : loop.orders[x - 1].matrixID;
 						int posB = loop.orders[x].matrixID;
 						int posC = order.orderID == 0 ? dumpID : order.matrixID;
@@ -425,7 +442,7 @@ namespace Garbage {
 						deltaTime += GetDistance(posA, posC);
 						deltaTime += GetDistance(posC, posB);
 						deltaTime += order.duration;
-						if (capacityLeft >= order.containerVolume && timeLeft >= deltaTime && frequencies[order.orderID] > 0) {
+						if (timeLeft >= deltaTime && (order.orderID == 0 || capacityLeft >= order.containerVolume && frequencies[order.orderID] > 0)) {
 							//insert order before x
 							Node neighbour = CopyNode(origin);
 							neighbour.loops[i].orders.Insert(x, order);
@@ -439,9 +456,7 @@ namespace Garbage {
 			List<Loop> newLoops = new List<Loop>();
 			foreach (Loop loop in origin.loops) {
 				Loop newLoop = new Loop(loop.truck, loop.day);
-				foreach (Order order in loop.orders) {
-					newLoop.Add(order);
-				}
+				newLoop.orders.AddRange(loop.orders);
 				newLoops.Add(newLoop);
 			}
 			return new Node(newLoops);
