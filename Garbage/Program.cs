@@ -59,7 +59,7 @@ namespace Garbage {
 			List<Order> todayOrders = new List<Order>();
 			for (int day = 1; day <= 5; day++) {
 				for (int truck = 1; truck <= 2; truck++) {
-					Loop pickupLoop = new Loop(truck, day);
+					Loop dayLoop = new Loop(truck, day);
 					float timeLeft = 12f * 60f;
 					float currentCapacity = 20000;
 					todayOrders.AddRange(orders);
@@ -71,22 +71,26 @@ namespace Garbage {
 							}
 						}
 						List<Order> currentOrders = new List<Order>();
-						List<Order> loop = new List<Order>();
+						List<Order> newLoop = new List<Order>();
 						currentOrders.AddRange(todayOrders);
-						float heuristicSum = 0, loopduration = 0, loopCapacity = 0;
+						float heuristicSumTravel = 0, heuristicSumEmpty = 0, loopduration = 0, loopCapacity = 0;
 						int loopPos = currentLocation;
 						while (currentOrders.Count > 0) {
-							float bestHeuristic = float.NegativeInfinity;
+							float bestHeuristic = float.NegativeInfinity, bestHeuristicTravel = float.NegativeInfinity, bestHeuristicEmpty = float.NegativeInfinity;
 							Order bestOrder = currentOrders [0];
 							for (int i = currentOrders.Count - 1; i >= 0; i--) {
 								Order order = currentOrders [i];
-								float newHeuristic;
+								float newHeuristicTravel, newHeuristicEmpty;
 								bool enoughCapacity = currentCapacity >= loopCapacity + order.containerVolume * 0.2f;
 								bool enoughTime = timeLeft >= loopduration + GetDistance(loopPos, order.matrixID) + order.duration + GetDistance(order.matrixID, dumpID) + dumpDuration;
 								if (enoughCapacity && enoughTime) {
-									newHeuristic = 2f * order.duration - GetDistance(loopPos, order.matrixID);
+									newHeuristicTravel = GetDistance(loopPos, order.matrixID);
+									newHeuristicEmpty = order.duration;
+									float newHeuristic = 2f * newHeuristicEmpty - newHeuristicTravel;
 									if (newHeuristic > bestHeuristic) {
 										bestHeuristic = newHeuristic;
+										bestHeuristicEmpty = newHeuristicEmpty;
+										bestHeuristicTravel = newHeuristicTravel;
 										bestOrder = order;
 									}
 								} else {
@@ -94,8 +98,9 @@ namespace Garbage {
 								}
 							}
 							if (currentOrders.Count > 0) {
-								heuristicSum += bestHeuristic;
-								loop.Add(bestOrder);
+								heuristicSumEmpty += bestHeuristicEmpty;
+								heuristicSumTravel += bestHeuristicTravel;
+								newLoop.Add(bestOrder);
 								loopduration += GetDistance(loopPos, bestOrder.matrixID);
 								loopduration += bestOrder.duration;
 								loopPos = bestOrder.matrixID;
@@ -103,11 +108,26 @@ namespace Garbage {
 								currentOrders.Remove(bestOrder);
 							}
 						}
-						heuristicSum -= (GetDistance(loopPos, dumpID) + dumpDuration);
+						heuristicSumTravel += GetDistance(loopPos, dumpID);
+						heuristicSumEmpty += dumpDuration;
+
+						//sort the new loop
+						if (newLoop.Count > 0) {
+							Order dump = new Order();
+							newLoop.Add(dump);
+							Tuple<List<Order>, float> SM = SolveTravellingSM(newLoop);
+							if (SM.Item2 < heuristicSumTravel) {
+								heuristicSumTravel = SM.Item2;
+								newLoop = SM.Item1;
+							}
+							int dumpIndex = newLoop.IndexOf(dump);
+							newLoop = OffsetLoop(newLoop, -(dumpIndex+1));
+						}
+
 						//Console.WriteLine("SUM: " + heuristicSum);
-						if (heuristicSum > 0 && loop.Count > 0) {
-							for (int i = 0; i < loop.Count; i++) {
-								Order order = loop [i];
+						if ((2f * heuristicSumEmpty - heuristicSumTravel) > 0 && newLoop.Count > 0) {
+							for (int i = 0; i < newLoop.Count; i++) {
+								Order order = newLoop [i];
 								//collect garbage
 								timeLeft -= GetDistance(currentLocation, order.matrixID); //move to order
 								currentLocation = order.matrixID;
@@ -116,7 +136,7 @@ namespace Garbage {
 								todayOrders.Remove(order);
 								orders.Remove(order);
 
-								pickupLoop.Add(order);
+								dayLoop.Add(order);
 							}
 
 							//empty
@@ -125,21 +145,22 @@ namespace Garbage {
 							timeLeft -= dumpDuration; //empty
 							currentCapacity = 20000; //reset capacity
 
-							pickupLoop.AddDump();
+							//dayLoop.AddDump();
 						} else {
 							todayOrders.Clear();
 						}
 					}
-					loops.Add(pickupLoop);
+					loops.Add(dayLoop);
 				}
 			}
 			Tuple<float, float> bestScore = CalculateScore(loops);
 
 			float T = 2;
 			int a = 1;
+			//while (false) { 
 			while (T > 0.15f) {
 				for (int i = 0; i < 25; i++) {
-					Console.WriteLine(a + " / " + 2275 + ": " + (bestScore.Item1 + bestScore.Item2));
+					Console.WriteLine(a + " / " + (25*25) + ": " + (bestScore.Item1 + bestScore.Item2));
 					a++;
 					List<List<Loop>> neighbours = GetNeighbours(loops);
 					bool accepted = false;
@@ -154,9 +175,7 @@ namespace Garbage {
 						} else {
 							float delta = scoreSum - (bestScore.Item1 + bestScore.Item2);
 							double p = Math.Exp(-delta / T);
-							//Console.WriteLine(p);
 							double r = random.NextDouble();
-							//Console.WriteLine(r);
 							if (r < p) {
 								accepted = true;
 							}
@@ -165,13 +184,65 @@ namespace Garbage {
 					loops = neighbour;
 					bestScore = score;
 				}
-				T *= 0.95f;
+				T *= 0.9f;
 			}
 			PrintResult(loops);
 			Console.WriteLine("Traveling time: " + bestScore.Item1);
 			Console.WriteLine("Decline penalty: " + bestScore.Item2);
 			Console.WriteLine("Total score: " + (bestScore.Item1 + bestScore.Item2));
 			Console.Read();
+		}
+		public static List<Order> OffsetLoop (List<Order> orders, int offset) {
+			List<Order> newOrders = new List<Order>();
+			for (int i = 0; i < orders.Count; i++) {
+				int newI = (i - offset + orders.Count) % orders.Count;
+				newOrders.Add(orders [newI]);
+			}
+			return newOrders;
+		}
+		public static Tuple<List<Order>, float> SolveTravellingSM (List<Order> origin) {
+			List<Order> bestList = null;
+			float smallestDistance = float.MaxValue;
+			for (int i = 0; i < origin.Count; i++) {
+				List<Order> orders = new List<Order>();
+				orders.AddRange(origin);
+				List<Order> newList = new List<Order>();
+				Order order = orders [i];
+				newList.Add(order);
+				orders.RemoveAt(i);
+				float distance = 0;
+				while (orders.Count > 0) {
+					Tuple<Order, float> closestOrder = FindClosestOrder(order, orders);
+					Order nextOrder = closestOrder.Item1;
+					newList.Add(nextOrder);
+					orders.Remove(nextOrder);
+					order = nextOrder;
+					distance += closestOrder.Item2;
+				}
+				//close the loop
+				distance += GetDistance(newList [0], newList [newList.Count - 1]);
+				if (distance < smallestDistance) {
+					//Console.WriteLine(distance);
+					smallestDistance = distance;
+					bestList = newList;
+				}
+			}
+			//Console.WriteLine("done");
+			return new Tuple<List<Order>, float>(bestList, smallestDistance);
+		}
+		public static Tuple<Order, float> FindClosestOrder (Order a, List<Order> bs) {
+			float smallestDistance = float.MaxValue;
+			Order closestOrder = null;
+			foreach (Order b in bs) {
+				if (a != b) {
+					float distance = GetDistance(a, b);
+					if (distance < smallestDistance) {
+						smallestDistance = distance;
+						closestOrder = b;
+					}
+				}
+			}
+			return new Tuple<Order, float> (closestOrder, smallestDistance);
 		}
 		public static float GetDistance (Order a, Order b) {
 			return GetDistance(a.matrixID, b.matrixID);
@@ -244,14 +315,18 @@ namespace Garbage {
 							capacityLeft = 20000 - timeAndVolume.Item2 [innerLoop];
 						} else {
 							//find possible orders
-							foreach (Order order in completeOrderList) {
+							List<Order> newOrderList = new List<Order>();
+							newOrderList.AddRange(completeOrderList);
+							newOrderList.Add(new Order());
+							foreach (Order order in newOrderList) {
 								int posA = x == 0 ? dumpID : origin [i].orders [x - 1].matrixID;
 								int posB = origin [i].orders [x].matrixID;
+								int posC = order.orderID == 0 ? dumpID : order.matrixID;
 								float deltaTime = -GetDistance(posA, posB);
-								deltaTime += GetDistance(posA, order.matrixID);
-								deltaTime += GetDistance(order.matrixID, posB);
+								deltaTime += GetDistance(posA, posC);
+								deltaTime += GetDistance(posC, posB);
 								deltaTime += order.duration;
-								if (capacityLeft >= order.containerVolume && timeLeft >= deltaTime && frequencies[order] > 0) {
+								if (order.orderID == 0 || (capacityLeft >= order.containerVolume && timeLeft >= deltaTime && frequencies[order] > 0)) {
 									//insert order before x
 									List<Loop> neighbour = CopyNode(origin);
 									neighbour [i].orders.Insert(x, order);
@@ -259,6 +334,39 @@ namespace Garbage {
 								}
 							}
 						}
+					}
+				}
+			}
+			//untangle a loop
+			for (int x = 0; x < origin.Count; x++) {
+				List<Order> orders = new List<Order>();
+				List<Loop> neighbour = CopyNode(origin);
+				for (int i = 0; i < origin[x].orders.Count; i++) {
+					if (origin[x].orders [i].orderID == 0) {
+						//sort orders
+						neighbour [x].orders.Remove(origin [x].orders [i]);
+						Order dump = new Order();
+						orders.Add(dump);
+						Tuple<List<Order>, float> SM = SolveTravellingSM(orders);
+						orders = SM.Item1;
+						int dumpIndex = orders.IndexOf(dump);
+						orders = OffsetLoop(orders, -(dumpIndex + 1));
+
+						neighbour [x].orders.InsertRange(i - (orders.Count - 1), orders);
+						bool isSame = true;
+						for (int a = 0; a < neighbour[x].orders.Count; a++) {
+							if (neighbour[x].orders[a].orderID != origin[x].orders[a].orderID) {
+								isSame = false;
+							}
+						}
+						if (!isSame) {
+							neighbours.Add(neighbour);
+						}
+						neighbour = CopyNode(origin);
+						orders.Clear();
+					} else {
+						orders.Add(origin[x].orders [i]);
+						neighbour [x].orders.Remove(origin [x].orders [i]);
 					}
 				}
 			}
