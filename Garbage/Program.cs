@@ -18,9 +18,9 @@ namespace Garbage {
 		static void Main (string [] args) {
 			List<Order> orders = new List<Order>();
 			Node node = new Node(new List<Loop>());
-			test = new Program();
 
 			//read order file
+			bool decimalComma = float.Parse("12.5") == 125f;
 			int maxMatrixID = 0;
 			StreamReader orderFile = new StreamReader("Orderbestand.txt");
 			string line = orderFile.ReadLine();
@@ -31,7 +31,8 @@ namespace Garbage {
 					int orderID = int.Parse(parameters[0]);
 					int frequence = int.Parse(parameters[2].Substring(0, 1));
 					int containerVolume = int.Parse(parameters[3]) * int.Parse(parameters[4]);
-					float duration = float.Parse(parameters[5].Replace('.', ','));
+					string durationString = decimalComma ? parameters [5].Replace('.', ',') : parameters [5];
+					float duration = float.Parse(durationString);
 					int matrixID = int.Parse(parameters[6]);
 					if (matrixID > maxMatrixID) {
 						maxMatrixID = matrixID;
@@ -154,7 +155,7 @@ namespace Garbage {
 							todayOrders.Clear();
 						}
 					}
-					loops.Add(dayLoop);
+					node.loops.Add(dayLoop);
 				}
 			}
 			Tuple<float, float> bestScore = CalculateScore(node);
@@ -370,6 +371,39 @@ namespace Garbage {
 				threads[i].Join();
 				neighbours.AddRange(threadResults[i]);
 			}
+			//untangle a loop
+			for (int x = 0; x < origin.loops.Count; x++) {
+				List<Order> orders = new List<Order>();
+				Node neighbour = CopyNode(origin);
+				for (int i = 0; i < origin.loops [x].orders.Count; i++) {
+					if (origin.loops [x].orders [i].orderID == 0) {
+						//sort orders
+						neighbour.loops [x].orders.Remove(origin.loops [x].orders [i]);
+						Order dump = new Order();
+						orders.Add(dump);
+						Tuple<List<Order>, float> SM = SolveTravellingSM(orders);
+						orders = SM.Item1;
+						int dumpIndex = orders.IndexOf(dump);
+						orders = OffsetLoop(orders, -(dumpIndex + 1));
+
+						neighbour.loops [x].orders.InsertRange(i - (orders.Count - 1), orders);
+						bool isSame = true;
+						for (int a = 0; a < neighbour.loops [x].orders.Count; a++) {
+							if (neighbour.loops [x].orders [a].orderID != origin.loops [x].orders [a].orderID) {
+								isSame = false;
+							}
+						}
+						if (!isSame) {
+							neighbours.Add(neighbour);
+						}
+						neighbour = CopyNode(origin);
+						orders.Clear();
+					} else {
+						orders.Add(origin.loops [x].orders [i]);
+						neighbour.loops [x].orders.Remove(origin.loops [x].orders [i]);
+					}
+				}
+			}
 			return neighbours;
 		}
 		public static void AddOrdersToLoop(Loop loop, int i, Node origin, Dictionary<int, int> frequencies, List<Node> result) {
@@ -400,40 +434,6 @@ namespace Garbage {
 					}
 				}
 			}
-			//untangle a loop
-			for (int x = 0; x < origin.Count; x++) {
-				List<Order> orders = new List<Order>();
-				List<Loop> neighbour = CopyNode(origin);
-				for (int i = 0; i < origin[x].orders.Count; i++) {
-					if (origin[x].orders [i].orderID == 0) {
-						//sort orders
-						neighbour [x].orders.Remove(origin [x].orders [i]);
-						Order dump = new Order();
-						orders.Add(dump);
-						Tuple<List<Order>, float> SM = SolveTravellingSM(orders);
-						orders = SM.Item1;
-						int dumpIndex = orders.IndexOf(dump);
-						orders = OffsetLoop(orders, -(dumpIndex + 1));
-
-						neighbour [x].orders.InsertRange(i - (orders.Count - 1), orders);
-						bool isSame = true;
-						for (int a = 0; a < neighbour[x].orders.Count; a++) {
-							if (neighbour[x].orders[a].orderID != origin[x].orders[a].orderID) {
-								isSame = false;
-							}
-						}
-						if (!isSame) {
-							neighbours.Add(neighbour);
-						}
-						neighbour = CopyNode(origin);
-						orders.Clear();
-					} else {
-						orders.Add(origin[x].orders [i]);
-						neighbour [x].orders.Remove(origin [x].orders [i]);
-					}
-				}
-			}
-			return neighbours;
 		}
 		public static Node CopyNode (Node origin) {
 			List<Loop> newLoops = new List<Loop>();
