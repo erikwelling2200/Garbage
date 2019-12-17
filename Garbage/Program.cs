@@ -197,9 +197,9 @@ namespace Garbage {
 
 			//settings
 			float T = 5;
-			int stepsPerT = 8;
-			float Tfactor = 0.9f;
-			float TTreshold = 0.15f;
+			int stepsPerT = 16*50;
+			float Tfactor = 0.95f;
+			float TTreshold = 0.05f;
 
 			int stepsTillThreshold = (int)Math.Ceiling(Math.Log(TTreshold / T, Tfactor));
 			while (T > TTreshold) {
@@ -530,7 +530,7 @@ namespace Garbage {
 					float timeLeft = 12f * 60f - timeAndDistance.Item1;
 					if (timeLeft >= dumpDuration) {
 						foreach (Order order in possibleOrders) {
-							if (timeLeft >= dumpDuration + GetDistance(dumpID, order.matrixID) + GetDistance(order.matrixID, dumpID) + order.duration) {
+							if (order.orderID != 0 && timeLeft >= dumpDuration + GetDistance(dumpID, order.matrixID) + GetDistance(order.matrixID, dumpID) + order.duration) {
 								SubLoop subLoop = new SubLoop();
 								subLoop.orders.Add(order);
 								subLoop.orders.Add(new Order());
@@ -576,20 +576,22 @@ namespace Garbage {
 			int capacityLeft = 20000 - subDistance;
 			//find possible orders
 			foreach (Order order in possibleOrders) {
-				for (int x = 0; x < subLoop.orders.Count; x++) {
-					int posA = x == 0 ? dumpID : subLoop.orders [x - 1].matrixID;
-					int posB = subLoop.orders [x].orderID == 0 ? dumpID : subLoop.orders [x].matrixID;
-					int posC = order.orderID == 0 ? dumpID : order.matrixID;
-					float deltaTime = -GetDistance(posA, posB);
-					deltaTime += GetDistance(posA, posC);
-					deltaTime += GetDistance(posC, posB);
-					deltaTime += order.duration;
-					if (timeLeft >= deltaTime && ((order.orderID == 0 && x > 0 && x < subLoop.orders.Count - 1) || capacityLeft >= (float)(order.containerVolume) * 0.2f)) {
-						//insert order before x
-						SubLoop newSubLoop = new SubLoop();
-						newSubLoop.orders.AddRange(subLoop.orders);
-						newSubLoop.orders.Insert(x, order);
-						result.Add(newSubLoop);
+				if (!subLoop.orders.Contains(order)) {
+					for (int x = 0; x < subLoop.orders.Count; x++) {
+						int posA = x == 0 ? dumpID : subLoop.orders[x - 1].matrixID;
+						int posB = subLoop.orders[x].orderID == 0 ? dumpID : subLoop.orders[x].matrixID;
+						int posC = order.orderID == 0 ? dumpID : order.matrixID;
+						float deltaTime = -GetDistance(posA, posB);
+						deltaTime += GetDistance(posA, posC);
+						deltaTime += GetDistance(posC, posB);
+						deltaTime += order.duration;
+						if (timeLeft >= deltaTime && ((order.orderID == 0 && x > 0 && x < subLoop.orders.Count - 1) || (capacityLeft >= (float)(order.containerVolume) * 0.2f))) {
+							//insert order before x
+							SubLoop newSubLoop = new SubLoop();
+							newSubLoop.orders.AddRange(subLoop.orders);
+							newSubLoop.orders.Insert(x, order);
+							result.Add(newSubLoop);
+						}
 					}
 				}
 			}

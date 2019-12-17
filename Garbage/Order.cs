@@ -152,11 +152,9 @@ namespace Garbage {
 			if (subLoopIndex < origin.loops [truck - 1, day - 1].subLoops.Count){
 				SubLoop oldSubLoop = origin.loops [truck - 1, day - 1].subLoops [subLoopIndex];
 				for (int i = 0; i < oldSubLoop.orders.Count - 1; i++) {
-					if (oldSubLoop.orders[i].orderID != 0) {
-						List<int> newList = new List<int>(pds [oldSubLoop.orders [i].orderID]);
-						newList.Remove(day);
-						pds [oldSubLoop.orders [i].orderID] = newList;
-					}
+					List<int> newList = new List<int>(pds[oldSubLoop.orders[i].orderID]);
+					newList.Remove(day);
+					pds[oldSubLoop.orders[i].orderID] = newList;
 				}
 			}
 			if (newSubLoop != null) {
