@@ -189,6 +189,7 @@ namespace Garbage {
 			Console.WriteLine(node2.GetScore());
 			Console.WriteLine(testNewSubLoop.GetTimeAndVolume());*/
 
+			node = new Node();
 
 			Tuple<float, float> bestScore = node.GetScore();
 			int a = 1;
@@ -574,6 +575,7 @@ namespace Garbage {
 		public static void AddOrdersToLoop(SubLoop subLoop, float subTime, int subDistance, List<Order> possibleOrders, List<SubLoop> result) {
 			float timeLeft = 12f * 60f - subTime;
 			int capacityLeft = 20000 - subDistance;
+			float maxDistance = 500f / 60f;
 			//find possible orders
 			foreach (Order order in possibleOrders) {
 				if (!subLoop.orders.Contains(order)) {
@@ -581,16 +583,19 @@ namespace Garbage {
 						int posA = x == 0 ? dumpID : subLoop.orders[x - 1].matrixID;
 						int posB = subLoop.orders[x].orderID == 0 ? dumpID : subLoop.orders[x].matrixID;
 						int posC = order.orderID == 0 ? dumpID : order.matrixID;
-						float deltaTime = -GetDistance(posA, posB);
-						deltaTime += GetDistance(posA, posC);
-						deltaTime += GetDistance(posC, posB);
-						deltaTime += order.duration;
-						if (timeLeft >= deltaTime && ((order.orderID == 0 && x > 0 && x < subLoop.orders.Count - 1) || (capacityLeft >= (float)(order.containerVolume) * 0.2f))) {
-							//insert order before x
-							SubLoop newSubLoop = new SubLoop();
-							newSubLoop.orders.AddRange(subLoop.orders);
-							newSubLoop.orders.Insert(x, order);
-							result.Add(newSubLoop);
+						float acDistance = GetDistance(posA, posC);
+						if (acDistance <= maxDistance) {
+							float deltaTime = -GetDistance(posA, posB);
+							deltaTime += acDistance;
+							deltaTime += GetDistance(posC, posB);
+							deltaTime += order.duration;
+							if (timeLeft >= deltaTime && ((order.orderID == 0 && x > 0 && x < subLoop.orders.Count - 1) || (capacityLeft >= (float)(order.containerVolume) * 0.2f))) {
+								//insert order before x
+								SubLoop newSubLoop = new SubLoop();
+								newSubLoop.orders.AddRange(subLoop.orders);
+								newSubLoop.orders.Insert(x, order);
+								result.Add(newSubLoop);
+							}
 						}
 					}
 				}
